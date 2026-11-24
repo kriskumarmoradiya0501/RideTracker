@@ -7,10 +7,12 @@ namespace RideTracker.Hubs;
 public class LocationHub : Hub
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<LocationHub> _logger;
 
-    public LocationHub(IServiceProvider serviceProvider)
+    public LocationHub(IServiceProvider serviceProvider, ILogger<LocationHub> logger)
     {
         _serviceProvider = serviceProvider;
+        _logger = logger;
     }
 
     public async Task UpdateLocation(double lat, double lng, double speed, string geohash)
@@ -26,7 +28,14 @@ public class LocationHub : Hub
         { 
             Latitude = lat, Longitude = lng, Speed = speed, Geohash = geohash 
         });
-        await db.SaveChangesAsync();
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not save a location update.");
+        }
     }
 
     public async Task SetDriverStatus(bool isLive)
