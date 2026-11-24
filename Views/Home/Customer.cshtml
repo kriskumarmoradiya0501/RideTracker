@@ -1,0 +1,105 @@
+@{ ViewData["Title"] = "Customer View"; }
+
+<div style="position: relative;">
+    <div id="customerMap" class="full-screen-map"></div>
+
+    <!-- Map controls overlay -->
+    <div style="position: absolute; top: 20px; right: 20px; z-index: 1000;">
+        <div class="form-check form-switch status-card py-2 px-4" style="background: rgba(255,255,255,0.95);">
+            <input class="form-check-input" type="checkbox" id="toggleFollow" checked>
+            <label class="form-check-label fw-bold" for="toggleFollow">Auto-Follow Driver</label>
+        </div>
+    </div>
+
+    <!-- Bottom Status Card Overlay -->
+    <div class="customer-overlay">
+        <div class="status-card">
+            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                <h5 class="mb-0">Driver Status</h5>
+                <span id="driverStatusBadge" class="badge bg-secondary">OFFLINE</span>
+            </div>
+            
+            <div class="row text-center text-muted small">
+                <div class="col-4 border-end">
+                    <div class="fw-bold text-dark fs-5" id="cSpeed">0</div> km/h
+                </div>
+                <div class="col-4 border-end">
+                    <div class="fw-bold text-dark fs-5" id="cGeohash">---</div> Grid
+                </div>
+                <div class="col-4">
+                    <div class="fw-bold text-dark fs-5">ETA</div> 4 min
+                </div>
+            </div>
+            
+            <div class="mt-2 text-center small text-muted">
+                Last Update: <span id="cUpdated" class="fw-bold">Waiting for connection...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // Map Setup
+    const map = L.map('customerMap').setView([21.1702, 72.8311], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    // Car Icon Setup
+    const carIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png', // Free car icon
+        iconSize: [40, 40], iconAnchor: [20, 20]
+    });
+    
+    let driverMarker = L.marker([21.1702, 72.8311], {icon: carIcon}).addTo(map);
+    
+    // Trail Path
+    const trail = L.polyline([], {color: '#38bdf8', weight: 4, dashArray: '5, 10'}).addTo(map);
+    
+    let isFollowing = document.getElementById("toggleFollow").checked;
+    document.getElementById("toggleFollow").addEventListener("change", (e) => {
+        isFollowing = e.target.checked;
+    });
+
+    let lastTime = Date.now();
+    setInterval(() => {
+        if(lastTime && Date.now() - lastTime > 5000) {
+           document.getElementById("cUpdated").innerText = Math.floor((Date.now() - lastTime)/1000) + " secs ago";
+        }
+    }, 1000);
+
+    // SignalR Setup
+    const connection = new signalR.HubConnectionBuilder().withUrl("/locationHub").build();
+
+    connection.on("ReceiveDriverStatus", function (isLive) {
+        const badge = document.getElementById("driverStatusBadge");
+        if(isLive) {
+            badge.className = "badge bg-success"; badge.innerText = "LIVE";
+            trail.setLatLngs([]); // clear trail on new session
+        } else {
+            badge.className = "badge bg-secondary"; badge.innerText = "OFFLINE";
+        }
+    });
+
+    connection.on("ReceiveLocation", function (lat, lng, speed, geohash, timestamp) {
+        lastTime = Date.now();
+        document.getElementById("cUpdated").innerText = "Just now";
+        
+        // Ensure status is Live if we got data
+        document.getElementById("driverStatusBadge").className = "badge bg-success"; 
+        document.getElementById("driverStatusBadge").innerText = "LIVE";
+
+        // Update Stats
+        document.getElementById("cSpeed").innerText = speed;
+        document.getElementById("cGeohash").innerText = geohash;
+
+        // Move Marker & Trail
+        const newLatLng = [lat, lng];
+        driverMarker.setLatLng(newLatLng);
+        trail.addLatLng(newLatLng);
+
+        if (isFollowing) map.panTo(newLatLng);
+    });
+
+    connection.start().catch(err => console.error(err));
+</script>
+}

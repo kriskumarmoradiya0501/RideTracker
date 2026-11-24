@@ -1,0 +1,116 @@
+@{ ViewData["Title"] = "Driver Dashboard"; }
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-5 mb-3">
+            <div class="status-card h-100">
+                <h4 class="mb-3">Driver Controls</h4>
+                <button id="btnRealGps" class="btn btn-primary w-100 mb-2">🟢 Start Real GPS Sharing</button>
+                <button id="btnSimulate" class="btn btn-warning w-100 mb-2">🚗 Simulate Route (Surat)</button>
+                <button id="btnStop" class="btn btn-danger w-100 mb-4" disabled>🛑 Stop Sharing</button>
+                
+                <hr />
+                <h5>Live Telemetry</h5>
+                <p class="mb-1 text-muted">Status: <span id="connStatus" class="fw-bold text-warning">Connecting...</span></p>
+                <p class="mb-1 text-muted">Geohash (Prec 7): <span id="lblGeohash" class="fw-bold text-dark">-</span></p>
+                <p class="mb-1 text-muted">Lat: <span id="lblLat" class="fw-bold text-dark">-</span></p>
+                <p class="mb-1 text-muted">Lng: <span id="lblLng" class="fw-bold text-dark">-</span></p>
+                <p class="mb-1 text-muted">Speed: <span id="lblSpeed" class="fw-bold text-dark">-</span> km/h</p>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="position-relative">
+                <div id="driverMap" class="mini-map"></div>
+                <div class="driver-overlay">
+                    <span id="liveBadge" class="badge bg-danger d-none" style="font-size: 1rem;">LIVE</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // 1. Setup SignalR connection
+    const connection = new signalR.HubConnectionBuilder().withUrl("/locationHub").build();
+    
+    connection.start().then(() => {
+        document.getElementById("connStatus").innerText = "Connected (Ready)";
+        document.getElementById("connStatus").className = "fw-bold text-success";
+    }).catch(err => console.error(err));
+
+    // 2. Setup Leaflet Map
+    const map = L.map('driverMap').setView([21.1702, 72.8311], 14); // Surat, Gujarat default
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    let marker = L.marker([21.1702, 72.8311]).addTo(map);
+
+    let watchId = null;
+    let simInterval = null;
+    
+    // Surat Simulated Route points
+    const simRoute = [
+        [21.1702, 72.8311], [21.1715, 72.8325], [21.1730, 72.8335], 
+        [21.1745, 72.8320], [21.1750, 72.8295], [21.1735, 72.8280], 
+        [21.1715, 72.8290]
+    ];
+    let simIndex = 0;
+
+    function processLocation(lat, lng, speedObj) {
+        const speed = speedObj ? (speedObj * 3.6).toFixed(1) : (Math.random() * 20 + 30).toFixed(1); // M/s to Km/h
+        const geohash = Geohash.encode(lat, lng, 7);
+
+        // Update Map
+        marker.setLatLng([lat, lng]);
+        map.panTo([lat, lng]);
+
+        // Update UI
+        document.getElementById("lblLat").innerText = lat.toFixed(5);
+        document.getElementById("lblLng").innerText = lng.toFixed(5);
+        document.getElementById("lblGeohash").innerText = geohash;
+        document.getElementById("lblSpeed").innerText = speed;
+
+        // Send to Server
+        if(connection.state === signalR.HubConnectionState.Connected) {
+            connection.invoke("UpdateLocation", lat, lng, parseFloat(speed), geohash);
+        }
+    }
+
+    function toggleButtons(sharing) {
+        document.getElementById("btnRealGps").disabled = sharing;
+        document.getElementById("btnSimulate").disabled = sharing;
+        document.getElementById("btnStop").disabled = !sharing;
+        document.getElementById("liveBadge").classList.toggle("d-none", !sharing);
+        if(connection.state === signalR.HubConnectionState.Connected) {
+            connection.invoke("SetDriverStatus", sharing);
+        }
+    }
+
+    // Real GPS Share
+    document.getElementById("btnRealGps").addEventListener("click", () => {
+        if (!navigator.geolocation) return alert("Geolocation not supported.");
+        toggleButtons(true);
+        watchId = navigator.geolocation.watchPosition(
+            (pos) => processLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed),
+            (err) => { alert("GPS Error: " + err.message); document.getElementById("btnStop").click(); },
+            { enableHighAccuracy: true, maximumAge: 0 }
+        );
+    });
+
+    // Simulate Surat Route
+    document.getElementById("btnSimulate").addEventListener("click", () => {
+        toggleButtons(true);
+        simInterval = setInterval(() => {
+            const point = simRoute[simIndex];
+            processLocation(point[0], point[1], null);
+            simIndex = (simIndex + 1) % simRoute.length;
+        }, 2000); // 2 second intervals
+    });
+
+    // Stop Sharing
+    document.getElementById("btnStop").addEventListener("click", () => {
+        if(watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        if(simInterval) { clearInterval(simInterval); simInterval = null; }
+        toggleButtons(false);
+    });
+</script>
+}
