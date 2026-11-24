@@ -14,7 +14,11 @@ builder.Services.AddSignalR(); // Add WebSockets support
 var connString = builder.Configuration.GetConnectionString("DefaultConnection");
 var databaseUrl = builder.Configuration["DATABASE_URL"];
 
-if (string.IsNullOrWhiteSpace(connString) && Uri.TryCreate(databaseUrl, UriKind.Absolute, out var databaseUri))
+var databaseValue = string.IsNullOrWhiteSpace(connString) ? databaseUrl : connString;
+
+if (!string.IsNullOrWhiteSpace(databaseValue)
+    && Uri.TryCreate(databaseValue, UriKind.Absolute, out var databaseUri)
+    && (databaseUri.Scheme == "postgres" || databaseUri.Scheme == "postgresql"))
 {
     var uriUserInfo = databaseUri.UserInfo.Split(':', 2);
     var postgres = new NpgsqlConnectionStringBuilder
